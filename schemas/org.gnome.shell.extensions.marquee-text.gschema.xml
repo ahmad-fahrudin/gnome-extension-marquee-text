@@ -63,5 +63,51 @@
       <summary>Show prefix icon</summary>
       <description>Tampilkan ikon di sebelah teks berjalan.</description>
     </key>
+
+    <key name="width-mode" type="s">
+      <choices>
+        <choice value="chars"/>
+        <choice value="pixels"/>
+      </choices>
+      <default>'chars'</default>
+      <summary>Width calculation mode</summary>
+      <description>Mode penentuan lebar area teks: 'chars' (berdasarkan jumlah karakter) atau 'pixels' (lebar piksel kustom).</description>
+    </key>
+
+    <key name="custom-width" type="i">
+      <default>200</default>
+      <summary>Custom width in pixels</summary>
+      <description>Lebar area teks dalam piksel saat menggunakan mode piksel.</description>
+    </key>
+
+    <key name="panel-padding-left" type="i">
+      <default>6</default>
+      <summary>Panel padding left</summary>
+      <description>Jarak bantalan (padding) sisi kiri di panel dalam piksel.</description>
+    </key>
+
+    <key name="panel-padding-right" type="i">
+      <default>6</default>
+      <summary>Panel padding right</summary>
+      <description>Jarak bantalan (padding) sisi kanan di panel dalam piksel.</description>
+    </key>
+
+    <key name="panel-margin-left" type="i">
+      <default>0</default>
+      <summary>Panel margin left</summary>
+      <description>Jarak margin luar sisi kiri di panel dalam piksel.</description>
+    </key>
+
+    <key name="panel-margin-right" type="i">
+      <default>0</default>
+      <summary>Panel margin right</summary>
+      <description>Jarak margin luar sisi kanan di panel dalam piksel.</description>
+    </key>
+
+    <key name="item-spacing" type="i">
+      <default>6</default>
+      <summary>Spacing between icon and text</summary>
+      <description>Jarak spasi antara ikon dan teks berjalan dalam piksel.</description>
+    </key>
   </schema>
 </schemalist>

@@ -125,6 +125,7 @@ class MarqueeIndicator extends PanelMenu.Button {
         this.add_child(this._box);
 
         this._buildMenu();
+        this._applyDimensions();
         this._connectSettings();
 
         // Mulai pembaruan konten dan animasi setelah actor terpasang di panel
@@ -137,7 +138,31 @@ class MarqueeIndicator extends PanelMenu.Button {
         });
     }
 
+    _applyDimensions() {
+        if (this._isDestroyed || !this._box) return;
+
+        const padLeft = this._settings.get_int('panel-padding-left');
+        const padRight = this._settings.get_int('panel-padding-right');
+        const marLeft = this._settings.get_int('panel-margin-left');
+        const marRight = this._settings.get_int('panel-margin-right');
+        const spacing = this._settings.get_int('item-spacing');
+
+        this._box.set_style(
+            `padding-left: ${padLeft}px; ` +
+            `padding-right: ${padRight}px; ` +
+            `margin-left: ${marLeft}px; ` +
+            `margin-right: ${marRight}px; ` +
+            `spacing: ${spacing}px;`
+        );
+    }
+
     _calculateViewportWidth() {
+        const widthMode = this._settings.get_string('width-mode') || 'chars';
+        if (widthMode === 'pixels') {
+            const customWidth = this._settings.get_int('custom-width');
+            return Math.max(30, customWidth);
+        }
+
         const visibleLength = Math.max(5, this._settings.get_int('visible-length'));
         
         // Ukur estimasi lebar representatif teks berdasarkan font saat ini
@@ -148,7 +173,7 @@ class MarqueeIndicator extends PanelMenu.Button {
         const [, natW] = sample.get_preferred_width(-1);
         sample.destroy();
 
-        return Math.max(50, Math.round(natW));
+        return Math.max(40, Math.round(natW));
     }
 
     _calculateDuration(distance, speedSetting) {
@@ -335,9 +360,33 @@ class MarqueeIndicator extends PanelMenu.Button {
             }
         });
 
+        const padLeftSignal = this._settings.connect('changed::panel-padding-left', () => {
+            this._applyDimensions();
+        });
+        const padRightSignal = this._settings.connect('changed::panel-padding-right', () => {
+            this._applyDimensions();
+        });
+        const marLeftSignal = this._settings.connect('changed::panel-margin-left', () => {
+            this._applyDimensions();
+        });
+        const marRightSignal = this._settings.connect('changed::panel-margin-right', () => {
+            this._applyDimensions();
+        });
+        const spacingSignal = this._settings.connect('changed::item-spacing', () => {
+            this._applyDimensions();
+        });
+        const widthModeSignal = this._settings.connect('changed::width-mode', () => {
+            this._updateContent();
+        });
+        const customWidthSignal = this._settings.connect('changed::custom-width', () => {
+            this._updateContent();
+        });
+
         this._settingsSignals.push(
             textSignal, sepSignal, iconSignal,
-            speedSignal, lenSignal, dirSignal, pauseSignal
+            speedSignal, lenSignal, dirSignal, pauseSignal,
+            padLeftSignal, padRightSignal, marLeftSignal, marRightSignal,
+            spacingSignal, widthModeSignal, customWidthSignal
         );
     }
 
