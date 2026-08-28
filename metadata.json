@@ -1,0 +1,16 @@
+{
+  "uuid": "marquee-text@fahrudin.dev",
+  "name": "Marquee Text",
+  "description": "Menampilkan teks berjalan (scrolling marquee text) yang dapat dikustomisasi di panel atas GNOME Shell (kiri, tengah, kanan) dengan pengaturan teks, kecepatan, dan arah.",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "settings-schema": "org.gnome.shell.extensions.marquee-text",
+  "url": "https://github.com/ahmad-fahrudin/gnome-extension-marquee-text",
+  "version": 1
+}

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="marquee-text">
+  <schema id="org.gnome.shell.extensions.marquee-text" path="/org/gnome/shell/extensions/marquee-text/">
+    <key name="custom-text" type="s">
+      <default>'✨ Selamat Datang di GNOME Shell! 🚀 Semangat Produktif Hari Ini!'</default>
+      <summary>Custom marquee text</summary>
+      <description>Teks yang ditampilkan berjalan pada panel GNOME Shell.</description>
+    </key>
+
+    <key name="panel-position" type="s">
+      <choices>
+        <choice value="left"/>
+        <choice value="center"/>
+        <choice value="right"/>
+      </choices>
+      <default>'right'</default>
+      <summary>Panel Position</summary>
+      <description>Posisi teks di panel atas: left, center, atau right.</description>
+    </key>
+
+    <key name="panel-index" type="i">
+      <default>0</default>
+      <summary>Panel Box Index</summary>
+      <description>Urutan indeks pada box panel GNOME.</description>
+    </key>
+
+    <key name="scroll-speed" type="i">
+      <default>160</default>
+      <summary>Scroll speed in milliseconds</summary>
+      <description>Interval waktu per geseran karakter (ms). Semakin kecil nilainya, semakin cepat gerakannya.</description>
+    </key>
+
+    <key name="visible-length" type="i">
+      <default>28</default>
+      <summary>Visible character length</summary>
+      <description>Jumlah karakter yang tampak di dalam area panel.</description>
+    </key>
+
+    <key name="scroll-direction" type="s">
+      <choices>
+        <choice value="rtl"/>
+        <choice value="ltr"/>
+      </choices>
+      <default>'rtl'</default>
+      <summary>Scroll direction</summary>
+      <description>Arah pergerakan teks (rtl: kanan ke kiri, ltr: kiri ke kanan).</description>
+    </key>
+
+    <key name="separator" type="s">
+      <default>'   ★   '</default>
+      <summary>Loop separator</summary>
+      <description>Pemisah antara akhir teks dan pengulangan teks.</description>
+    </key>
+
+    <key name="is-paused" type="b">
+      <default>false</default>
+      <summary>Is scrolling paused</summary>
+      <description>Menjeda atau melanjutkan pergerakan teks.</description>
+    </key>
+
+    <key name="show-icon" type="b">
+      <default>true</default>
+      <summary>Show prefix icon</summary>
+      <description>Tampilkan ikon di sebelah teks berjalan.</description>
+    </key>
+  </schema>
+</schemalist>

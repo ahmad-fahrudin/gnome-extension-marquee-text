@@ -1,0 +1,9 @@
+# Build artifacts
+schemas/gschemas.compiled
+*.shell-extension.zip
+*.zip
+
+# Temporary and editor files
+.DS_Store
+*.swp
+*~
