@@ -1,7 +1,8 @@
 /**
  * Marquee Text - GNOME Shell Extension
- * Menampilkan teks berjalan (scrolling marquee) yang dapat dikustomisasi di panel GNOME Shell.
+ * Menampilkan teks berjalan (scrolling marquee) yang mulus ber-FPS tinggi (hardware-accelerated) di panel GNOME Shell.
  *
+ * Ukuran panel dan tombol tetap statis (diam), hanya teks di dalam viewport yang bergerak mulus.
  * Kompatibel dengan GNOME 45, 46, 47, 48, 50+ (ESM architecture).
  */
 
@@ -16,6 +17,57 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+// Viewport khusus dengan lebar statis (fixed width) yang tidak berubah saat teks di dalamnya bergerak
+const MarqueeViewport = GObject.registerClass(
+class MarqueeViewport extends St.Widget {
+    _init(params = {}) {
+        super._init({
+            style_class: 'marquee-viewport',
+            clip_to_allocation: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_align: Clutter.ActorAlign.START,
+            ...params,
+        });
+        this._viewportWidth = 200;
+    }
+
+    setViewportWidth(w) {
+        this._viewportWidth = Math.max(30, Math.round(w));
+        this.set_width(this._viewportWidth);
+        this.queue_relayout();
+    }
+
+    vfunc_get_preferred_width(_forHeight) {
+        // Mengembalikan lebar tetap agar ukuran panel GNOME tetap diam/statis
+        const w = this._viewportWidth || 200;
+        return [w, w];
+    }
+
+    vfunc_get_preferred_height(forWidth) {
+        if (this.first_child) {
+            return this.first_child.get_preferred_height(forWidth);
+        }
+        return [0, 0];
+    }
+
+    vfunc_allocate(box) {
+        this.set_allocation(box);
+        const child = this.first_child;
+        if (child) {
+            const height = box.y2 - box.y1;
+            const [, natW] = child.get_preferred_width(height);
+            const childW = Math.max(this._viewportWidth, natW);
+
+            const childBox = new Clutter.ActorBox();
+            childBox.x1 = 0;
+            childBox.y1 = 0;
+            childBox.x2 = childW;
+            childBox.y2 = height;
+            child.allocate(childBox);
+        }
+    }
+});
+
 const MarqueeIndicator = GObject.registerClass(
 class MarqueeIndicator extends PanelMenu.Button {
     _init(extension) {
@@ -23,10 +75,10 @@ class MarqueeIndicator extends PanelMenu.Button {
         this._extension = extension;
         this._settings = extension.getSettings();
 
-        this._timerId = null;
         this._settingsSignals = [];
-        this._charSegments = [];
-        this._offset = 0;
+        this._isDestroyed = false;
+        this._unitWidth = 0;
+        this._idleId = null;
 
         // Container Box di Top Panel
         this._box = new St.BoxLayout({
@@ -45,112 +97,213 @@ class MarqueeIndicator extends PanelMenu.Button {
         });
         this._box.add_child(this._icon);
 
-        // Label teks berjalan
-        this._label = new St.Label({
-            text: '',
+        // Viewport Clip Container dengan ukuran lebar statis
+        this._viewport = new MarqueeViewport();
+
+        // Scroll Box: wadah yang digeser secara GPU transform (translation_x) tanpa mengubah layout panel
+        this._scrollBox = new St.BoxLayout({
+            style_class: 'marquee-scroll-box',
+            vertical: false,
             y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'marquee-label',
+            x_align: Clutter.ActorAlign.START,
         });
-        this._box.add_child(this._label);
 
-        this.add_child(this._box);
-
-        // Segmenter untuk menangani karakter Unicode & Emoji secara aman
-        try {
-            this._segmenter = new Intl.Segmenter('und', { granularity: 'grapheme' });
-        } catch (e) {
-            this._segmenter = null;
+        // Label-label kembar untuk efek looping berkesinambungan tanpa jeda
+        this._labels = [];
+        for (let i = 0; i < 2; i++) {
+            const label = new St.Label({
+                text: '',
+                y_align: Clutter.ActorAlign.CENTER,
+                style_class: 'marquee-label',
+            });
+            this._labels.push(label);
+            this._scrollBox.add_child(label);
         }
+
+        this._viewport.add_child(this._scrollBox);
+        this._box.add_child(this._viewport);
+        this.add_child(this._box);
 
         this._buildMenu();
         this._connectSettings();
-        this._updateContent();
-        this._restartTimer();
+
+        // Mulai pembaruan konten dan animasi setelah actor terpasang di panel
+        this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._idleId = null;
+            if (!this._isDestroyed) {
+                this._updateContent();
+            }
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
-    _splitGraphemes(text) {
-        if (!text) return [];
-        if (this._segmenter) {
-            return Array.from(this._segmenter.segment(text), s => s.segment);
-        }
-        return Array.from(text);
+    _calculateViewportWidth() {
+        const visibleLength = Math.max(5, this._settings.get_int('visible-length'));
+        
+        // Ukur estimasi lebar representatif teks berdasarkan font saat ini
+        const sample = new St.Label({
+            text: '0'.repeat(visibleLength),
+            style_class: 'marquee-label',
+        });
+        const [, natW] = sample.get_preferred_width(-1);
+        sample.destroy();
+
+        return Math.max(50, Math.round(natW));
+    }
+
+    _calculateDuration(distance, speedSetting) {
+        // scroll-speed mewakili ms per pergeseran setara 1 lebar karakter (~9px)
+        const speed = Math.max(10, speedSetting || this._settings.get_int('scroll-speed'));
+        const durationMs = Math.round(distance * (speed / 9.0));
+        return Math.max(50, durationMs);
     }
 
     _updateContent() {
+        if (this._isDestroyed) return;
+
         const rawText = this._settings.get_string('custom-text') || '';
         const separator = this._settings.get_string('separator') || '   ★   ';
         const showIcon = this._settings.get_boolean('show-icon');
 
         this._icon.visible = showIcon;
 
+        if (!rawText.trim()) {
+            this._scrollBox.remove_all_transitions();
+            this._labels.forEach(l => l.set_text(''));
+            this._scrollBox.translation_x = 0;
+            return;
+        }
+
         const fullString = rawText + separator;
-        this._charSegments = this._splitGraphemes(fullString);
+        this._labels.forEach(l => l.set_text(fullString));
 
-        if (this._offset >= this._charSegments.length) {
-            this._offset = 0;
+        const viewportWidth = this._calculateViewportWidth();
+        this._viewport.setViewportWidth(viewportWidth);
+
+        const [, unitW] = this._labels[0].get_preferred_width(-1);
+        this._unitWidth = Math.max(1, Math.round(unitW));
+
+        // Pastikan jumlah label cukup untuk mengisi viewport + 1 unit ekstra untuk looping tanpa jeda
+        const neededLabels = Math.max(2, Math.ceil(viewportWidth / this._unitWidth) + 1);
+
+        while (this._labels.length < neededLabels) {
+            const label = new St.Label({
+                text: fullString,
+                y_align: Clutter.ActorAlign.CENTER,
+                style_class: 'marquee-label',
+            });
+            this._labels.push(label);
+            this._scrollBox.add_child(label);
         }
 
-        this._renderFrame();
+        while (this._labels.length > neededLabels && this._labels.length > 2) {
+            const label = this._labels.pop();
+            this._scrollBox.remove_child(label);
+            label.destroy();
+        }
+
+        this._startAnimation();
     }
 
-    _renderFrame() {
-        if (!this._charSegments || this._charSegments.length === 0) {
-            this._label.set_text('');
-            return;
-        }
+    _startAnimation() {
+        if (this._isDestroyed || this._unitWidth <= 0) return;
 
-        const visibleLength = Math.max(5, this._settings.get_int('visible-length'));
-        const total = this._charSegments.length;
-
-        // Jika panjang teks lebih pendek dari jendela tampilan, tetap tampilkan teks penuh
-        if (total <= visibleLength) {
-            this._label.set_text(this._charSegments.join(''));
-            return;
-        }
-
-        // Ambil potongan segmen karakter sesuai offset saat ini
-        const frameChars = [];
-        for (let i = 0; i < visibleLength; i++) {
-            const idx = (this._offset + i) % total;
-            frameChars.push(this._charSegments[idx]);
-        }
-
-        this._label.set_text(frameChars.join(''));
-    }
-
-    _stepAnimation() {
         const isPaused = this._settings.get_boolean('is-paused');
-        if (isPaused || !this._charSegments || this._charSegments.length === 0) {
+        if (isPaused) {
+            this._scrollBox.remove_all_transitions();
             return;
         }
 
-        const total = this._charSegments.length;
         const direction = this._settings.get_string('scroll-direction');
+        const speed = Math.max(10, this._settings.get_int('scroll-speed'));
+        const duration = this._calculateDuration(this._unitWidth, speed);
+
+        this._scrollBox.remove_all_transitions();
 
         if (direction === 'ltr') {
-            this._offset = (this._offset - 1 + total) % total;
+            this._scrollBox.translation_x = -this._unitWidth;
+            this._scrollBox.ease({
+                translation_x: 0,
+                duration: duration,
+                mode: Clutter.AnimationMode.LINEAR,
+                onComplete: () => {
+                    if (!this._isDestroyed && !this._settings.get_boolean('is-paused')) {
+                        this._scrollBox.translation_x = -this._unitWidth;
+                        this._startAnimation();
+                    }
+                },
+            });
         } else {
-            // Default rtl (kanan ke kiri)
-            this._offset = (this._offset + 1) % total;
+            // Default RTL (Kanan ke Kiri)
+            this._scrollBox.translation_x = 0;
+            this._scrollBox.ease({
+                translation_x: -this._unitWidth,
+                duration: duration,
+                mode: Clutter.AnimationMode.LINEAR,
+                onComplete: () => {
+                    if (!this._isDestroyed && !this._settings.get_boolean('is-paused')) {
+                        this._scrollBox.translation_x = 0;
+                        this._startAnimation();
+                    }
+                },
+            });
         }
-
-        this._renderFrame();
     }
 
-    _restartTimer() {
-        this._stopTimer();
-
-        const speed = Math.max(30, this._settings.get_int('scroll-speed'));
-        this._timerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, speed, () => {
-            this._stepAnimation();
-            return GLib.SOURCE_CONTINUE;
-        });
+    _pauseAnimation() {
+        if (this._isDestroyed) return;
+        this._scrollBox.remove_all_transitions();
     }
 
-    _stopTimer() {
-        if (this._timerId) {
-            GLib.Source.remove(this._timerId);
-            this._timerId = null;
+    _resumeAnimation() {
+        if (this._isDestroyed || this._settings.get_boolean('is-paused') || this._unitWidth <= 0) return;
+
+        const direction = this._settings.get_string('scroll-direction');
+        const speed = Math.max(10, this._settings.get_int('scroll-speed'));
+        const totalDuration = this._calculateDuration(this._unitWidth, speed);
+
+        this._scrollBox.remove_all_transitions();
+
+        if (direction === 'ltr') {
+            let curX = this._scrollBox.translation_x;
+            if (curX > 0 || curX < -this._unitWidth) {
+                curX = -this._unitWidth;
+                this._scrollBox.translation_x = curX;
+            }
+            const remainingDist = Math.abs(0 - curX);
+            const duration = Math.max(20, Math.round(totalDuration * (remainingDist / this._unitWidth)));
+
+            this._scrollBox.ease({
+                translation_x: 0,
+                duration: duration,
+                mode: Clutter.AnimationMode.LINEAR,
+                onComplete: () => {
+                    if (!this._isDestroyed && !this._settings.get_boolean('is-paused')) {
+                        this._scrollBox.translation_x = -this._unitWidth;
+                        this._startAnimation();
+                    }
+                },
+            });
+        } else {
+            let curX = this._scrollBox.translation_x;
+            if (curX < -this._unitWidth || curX > 0) {
+                curX = 0;
+                this._scrollBox.translation_x = curX;
+            }
+            const remainingDist = Math.abs(-this._unitWidth - curX);
+            const duration = Math.max(20, Math.round(totalDuration * (remainingDist / this._unitWidth)));
+
+            this._scrollBox.ease({
+                translation_x: -this._unitWidth,
+                duration: duration,
+                mode: Clutter.AnimationMode.LINEAR,
+                onComplete: () => {
+                    if (!this._isDestroyed && !this._settings.get_boolean('is-paused')) {
+                        this._scrollBox.translation_x = 0;
+                        this._startAnimation();
+                    }
+                },
+            });
         }
     }
 
@@ -162,21 +315,29 @@ class MarqueeIndicator extends PanelMenu.Button {
             this._updateContent();
         });
         const iconSignal = this._settings.connect('changed::show-icon', () => {
-            this._updateContent();
+            this._icon.visible = this._settings.get_boolean('show-icon');
         });
         const speedSignal = this._settings.connect('changed::scroll-speed', () => {
-            this._restartTimer();
+            this._startAnimation();
         });
         const lenSignal = this._settings.connect('changed::visible-length', () => {
-            this._renderFrame();
+            this._updateContent();
+        });
+        const dirSignal = this._settings.connect('changed::scroll-direction', () => {
+            this._startAnimation();
         });
         const pauseSignal = this._settings.connect('changed::is-paused', () => {
             this._updatePauseMenuItem();
+            if (this._settings.get_boolean('is-paused')) {
+                this._pauseAnimation();
+            } else {
+                this._resumeAnimation();
+            }
         });
 
         this._settingsSignals.push(
             textSignal, sepSignal, iconSignal,
-            speedSignal, lenSignal, pauseSignal
+            speedSignal, lenSignal, dirSignal, pauseSignal
         );
     }
 
@@ -251,7 +412,17 @@ class MarqueeIndicator extends PanelMenu.Button {
     }
 
     destroy() {
-        this._stopTimer();
+        this._isDestroyed = true;
+
+        if (this._idleId) {
+            GLib.Source.remove(this._idleId);
+            this._idleId = null;
+        }
+
+        if (this._scrollBox) {
+            this._scrollBox.remove_all_transitions();
+            this._scrollBox.translation_x = 0;
+        }
 
         if (this._settingsSignals && this._settingsSignals.length > 0) {
             this._settingsSignals.forEach(id => {

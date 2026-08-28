@@ -93,13 +93,13 @@ export default class MarqueePreferences extends ExtensionPreferences {
         // Panjang Karakter Terlihat
         const visibleLenAdjustment = new Gtk.Adjustment({
             lower: 5,
-            upper: 120,
+            upper: 150,
             step_increment: 1,
             page_increment: 5,
             value: settings.get_int('visible-length'),
         });
         const visibleLenRow = new Adw.SpinRow({
-            title: _('Panjang Karakter Terlihat'),
+            title: _('Panjang Karakter Terlihat (Lebar Area)'),
             subtitle: _('Banyaknya karakter teks yang terlihat sekaligus di panel'),
             adjustment: visibleLenAdjustment,
         });
@@ -119,14 +119,14 @@ export default class MarqueePreferences extends ExtensionPreferences {
         // 3. GROUP: Kecepatan & Arah Animasi
         // ==========================================
         const animGroup = new Adw.PreferencesGroup({
-            title: _('Kecepatan & Arah Gerak'),
-            description: _('Atur tempo geseran teks dan arah gerak'),
+            title: _('Kecepatan & Arah Gerak (Smooth FPS)'),
+            description: _('Atur tempo pergerakan teks dan arah animasi berkecepatan tinggi'),
         });
         page.add(animGroup);
 
         // Kecepatan Scroll
         const speedAdjustment = new Gtk.Adjustment({
-            lower: 30,
+            lower: 20,
             upper: 1000,
             step_increment: 10,
             page_increment: 50,

@@ -5,6 +5,14 @@
     padding: 0 4px;
 }
 
+.marquee-viewport {
+    /* Viewport membatasi teks yang lewat batas secara hardware-clipped */
+}
+
+.marquee-scroll-box {
+    /* Container label yang digeser secara linear dan mulus */
+}
+
 .marquee-icon {
     icon-size: 15px;
     margin-right: 4px;
